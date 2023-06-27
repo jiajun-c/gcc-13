@@ -1,0 +1,77 @@
+# DP: Proposed fix for PR ipa/r110276.
+
+gcc/ChangeLog:
+
+2023-06-16  Martin Jambor  <mjambor@suse.cz>
+
+	PR ipa/110276
+	* ipa-sra.cc (struct caller_issues): New field there_is_one.
+	(check_for_caller_issues): Set it.
+	(check_all_callers_for_issues): Check it.
+
+gcc/testsuite/ChangeLog:
+
+2023-06-16  Martin Jambor  <mjambor@suse.cz>
+
+	PR ipa/110276
+	* gcc.dg/ipa/pr110276.c: New test.
+---
+ gcc/ipa-sra.cc                      | 11 +++++++++++
+ gcc/testsuite/gcc.dg/ipa/pr110276.c | 15 +++++++++++++++
+ 2 files changed, 26 insertions(+)
+ create mode 100644 gcc/testsuite/gcc.dg/ipa/pr110276.c
+
+--- a/src/gcc/ipa-sra.cc
++++ b/src/gcc/ipa-sra.cc
+@@ -3074,6 +3074,8 @@ struct caller_issues
+   cgraph_node *candidate;
+   /* There is a thunk among callers.  */
+   bool thunk;
++  /* Set if there is at least one caller that is OK.  */
++  bool there_is_one;
+   /* Call site with no available information.  */
+   bool unknown_callsite;
+   /* Call from outside the candidate's comdat group.  */
+@@ -3116,6 +3118,8 @@ check_for_caller_issues (struct cgraph_node *node, void *data)
+ 
+       if (csum->m_bit_aligned_arg)
+ 	issues->bit_aligned_aggregate_argument = true;
++
++      issues->there_is_one = true;
+     }
+   return false;
+ }
+@@ -3170,6 +3174,13 @@ check_all_callers_for_issues (cgraph_node *node)
+       for (unsigned i = 0; i < param_count; i++)
+ 	(*ifs->m_parameters)[i].split_candidate = false;
+     }
++  if (!issues.there_is_one)
++    {
++      if (dump_file && (dump_flags & TDF_DETAILS))
++	fprintf (dump_file, "There is no call to %s that we can modify.  "
++		 "Disabling all modifications.\n", node->dump_name ());
++      return true;
++    }
+   return false;
+ }
+ 
+--- /dev/null
++++ b/src/gcc/testsuite/gcc.dg/ipa/pr110276.c
+@@ -0,0 +1,15 @@
++/* { dg-do compile } */
++/* { dg-options "-O2" } */
++
++typedef long (*EFI_PCI_IO_PROTOCOL_CONFIG)();
++typedef struct {
++  EFI_PCI_IO_PROTOCOL_CONFIG Read;
++} EFI_PCI_IO_PROTOCOL_CONFIG_ACCESS;
++typedef struct {
++  EFI_PCI_IO_PROTOCOL_CONFIG_ACCESS Pci;
++} EFI_PCI_IO_PROTOCOL;
++int init_regs_0;
++static void __attribute__((constructor)) init(EFI_PCI_IO_PROTOCOL *pci_io) {
++  if (init_regs_0)
++    pci_io->Pci.Read();
++}
+-- 
+2.40.1
